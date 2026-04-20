@@ -1,0 +1,71 @@
+[
+{
+  "name": "Говядина: стейк medium rare",
+  "temperature": 58,
+  "hours": 1,
+  "minutes": 30,
+  "shaker_enabled": false
+},
+{
+  "name": "Говядина: ростбиф medium rare",
+  "temperature": 60,
+  "hours": 6,
+  "minutes": 0,
+  "shaker_enabled": false
+},
+{
+  "name": "Свинина: отбивная medium rare",
+  "temperature": 62,
+  "hours": 1,
+  "minutes": 0,
+  "shaker_enabled": false
+},
+{
+  "name": "Курица: грудка",
+  "temperature": 65,
+  "hours": 1,
+  "minutes": 0,
+  "temperature_offset": 0.5,
+  "shaker_enabled": false
+},
+{
+  "name": "Курица: окорочка",
+  "temperature": 75,
+  "hours": 1,
+  "minutes": 30,
+  "temperature_offset": 0.5,
+  "shaker_enabled": false
+},
+{
+  "name": "Рыба: филе",
+  "temperature": 50,
+  "hours": 0,
+  "minutes": 40,
+  "temperature_offset": 0.5,
+  "shaker_enabled": false
+},
+{
+  "name": "Яйца: пашот",
+  "temperature": 65,
+  "hours": 0,
+  "minutes": 40,
+  "temperature_offset": 0.5,
+  "shaker_enabled": false
+},
+{
+  "name": "Зелёные овощи: нежные",
+  "temperature": 85,
+  "hours": 0,
+  "minutes": 5,
+  "temperature_offset": 2,
+  "shaker_enabled": false
+},
+{
+  "name": "Картофель: мягкий",
+  "temperature": 85,
+  "hours": 1,
+  "minutes": 30,
+  "temperature_offset": 2,
+  "shaker_enabled": false
+}
+]

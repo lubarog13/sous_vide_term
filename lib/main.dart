@@ -3,7 +3,11 @@ import 'package:flutter_picker_plus/flutter_picker_plus.dart';
 
 import 'package:flutter_timer_countdown/flutter_timer_countdown.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'database.dart';
+import 'programModel.dart';
+import 'programList.dart';
+import 'buttomNavigation.dart';
+  
 void main() {
   runApp(const MyApp());
 }
@@ -62,7 +66,7 @@ class _MyHomePageState extends State<MyHomePage> {
   double _targetTemperature = 50.0;
   double _currentTemperature = 0;
   double _temperatureOffset = 0.0;
-  String _program = 'Программа 1';
+  Program? _program;
   int _hours = 20;
   int _minutes = 30;
   int _initialHours = 20;
@@ -73,18 +77,20 @@ class _MyHomePageState extends State<MyHomePage> {
       minutes: 30,
     ),
   );
+  bool _shakerEnabled = false;
   TimerCountdown? _timer;
   Text? _timerPlaceholder;
   bool _timerRunning = false;
   SharedPreferences? _prefs;
-
   TextEditingController _textFieldController = TextEditingController();
 
 
 
   @override
  void initState()  {
+  print('initState');
     super.initState();
+    print('initState');
     _initPrefs();
 
   }
@@ -92,17 +98,19 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     saveState();
+    DBProvider.db.close();
     super.dispose();
   }
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
-    String? selectedProgram = _prefs?.getString('selected_program');
-    if (selectedProgram != null) {
-      _program = selectedProgram;
+    int? selectedProgram = _prefs?.getInt('selected_program') ;
+    if (selectedProgram != null && selectedProgram != 0) {
+      Program program = await DBProvider.db.getProgram(selectedProgram);
+      _program = program;
       if (!(_prefs?.containsKey('current_hours') ?? false)) {
-      _initialHours = _prefs?.getInt('${selectedProgram}_hours') ?? 20;
-      _initialMinutes = _prefs?.getInt('${selectedProgram}_minutes') ?? 30;
+      _initialHours = program.hours;
+      _initialMinutes = program.minutes;
       _hours = _initialHours;
       _minutes = _initialMinutes;
       _endTime = DateTime.now().add(
@@ -111,22 +119,59 @@ class _MyHomePageState extends State<MyHomePage> {
           minutes: _minutes,
         ),
       );
-      _targetTemperature = _prefs?.getDouble('${selectedProgram}_temperature') ?? 50.0;
-      _temperatureOffset = _prefs?.getDouble('${selectedProgram}_temperature_offset') ?? 0.0;
+      _targetTemperature = program.temperature;
+      _temperatureOffset = program.temperatureOffset;
+      _shakerEnabled = program.shakerEnabled;
+      }  else {
+          _hours = _prefs?.getInt('current_hours') ?? 20;
+          _minutes = _prefs?.getInt('current_minutes') ?? 30;
+          _initialHours = _hours;
+          _initialMinutes = _minutes;
+          _endTime = DateTime.now().add(
+            Duration(
+              hours: _hours,
+              minutes: _minutes,
+            ),
+          );
+          _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
+          _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.0;
+          _shakerEnabled = _prefs?.getBool('current_shaker_enabled') ?? false;
+        }
       } else {
-        _hours = _prefs?.getInt('current_hours') ?? 20;
-        _minutes = _prefs?.getInt('current_minutes') ?? 30;
-        _initialHours = _hours;
-        _initialMinutes = _minutes;
-        _endTime = DateTime.now().add(
-          Duration(
-            hours: _hours,
-            minutes: _minutes,
-          ),
-        );
-        _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
-        _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.0;
-      }
+        List<Program> programs = await DBProvider.db.getPrograms();
+        if (programs.isNotEmpty) {
+          _program = programs[0];
+                if (!(_prefs?.containsKey('current_hours') ?? false)) {
+
+          _initialHours = _program?.hours ?? 20;
+          _initialMinutes = _program?.minutes ?? 30;
+          _hours = _initialHours;
+          _minutes = _initialMinutes;
+          _endTime = DateTime.now().add(
+            Duration(
+              hours: _hours,
+              minutes: _minutes,
+            ),
+          );
+          _targetTemperature = _program?.temperature ?? 50.0;
+          _temperatureOffset = _program?.temperatureOffset ?? 0.0;
+          _shakerEnabled = _program?.shakerEnabled ?? false;
+                } else {
+                  _hours = _prefs?.getInt('current_hours') ?? 20;
+                  _minutes = _prefs?.getInt('current_minutes') ?? 30;
+                  _initialHours = _hours;
+                  _initialMinutes = _minutes;
+                  _endTime = DateTime.now().add(
+                    Duration(
+                      hours: _hours,
+                      minutes: _minutes,
+                    ),
+                  );
+                  _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
+                  _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.0;
+                  _shakerEnabled = _prefs?.getBool('current_shaker_enabled') ?? false;
+                }
+              }
     }
   }
 
@@ -177,8 +222,8 @@ class _MyHomePageState extends State<MyHomePage> {
       format: CountDownTimerFormat.hoursMinutes,
       endTime: _endTime,
       enableDescriptions: false,
-      timeTextStyle: TextStyle(fontSize: 80),
-      colonsTextStyle: TextStyle(fontSize: 80),
+      timeTextStyle: TextStyle(fontSize: 50),
+      colonsTextStyle: TextStyle(fontSize: 50),
       onEnd: () {
         setState(() {
           _resetTimer();
@@ -194,7 +239,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void createTimerPlaceholder() {
-    _timerPlaceholder = Text('$_hours : $_minutes', style: TextStyle(fontSize: 80));
+    _timerPlaceholder = Text('$_hours : $_minutes', style: TextStyle(fontSize: 50));
   }
 
 
@@ -299,11 +344,11 @@ class _MyHomePageState extends State<MyHomePage> {
     ).showModal(context);
   }
 
-  void showProgramsPicker(BuildContext context) {
-    List<String> programs = _prefs?.getStringList('programs') ?? [];
+  Future<void> showProgramsPicker(BuildContext context) async {
+    List<Program> programs = await DBProvider.db.getPrograms();
     Picker(
-      adapter:  PickerDataAdapter<String>(
-      pickerData: programs
+      adapter:  PickerDataAdapter<Program>(
+      pickerData: programs.map((program) => program.name).toList()
     ),
     confirmText: 'Установить',
     cancelText: 'Отмена',
@@ -312,9 +357,9 @@ class _MyHomePageState extends State<MyHomePage> {
       title: const Text('Выберите программу'),
       onConfirm: (Picker picker, List<int> value) {
         setState(() {
-          _program = picker.getSelectedValues()[0];
-          _initialHours = _prefs?.getInt('${_program}_hours') ?? 20;
-          _initialMinutes = _prefs?.getInt('${_program}_minutes') ?? 30;
+          _program = programs[value[0]];
+          _initialHours = programs[value[0]].hours;
+          _initialMinutes = programs[value[0]].minutes;
           _hours = _initialHours;
           _minutes = _initialMinutes;
           _endTime = DateTime.now().add(
@@ -323,8 +368,9 @@ class _MyHomePageState extends State<MyHomePage> {
               minutes: _minutes,
             ),
           );
-          _targetTemperature = _prefs?.getDouble('${_program}_temperature') ?? 50.0;
-          _temperatureOffset = _prefs?.getDouble('${_program}_temperature_offset') ?? 0.0;
+          _targetTemperature = programs[value[0]].temperature;
+          _temperatureOffset = programs[value[0]].temperatureOffset;
+          _shakerEnabled = programs[value[0]].shakerEnabled;
           _timerRunning = false;
           _timer = null;
           createTimerPlaceholder();
@@ -355,15 +401,14 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: () async {
                 List<String> programs = _prefs?.getStringList('programs') ?? [];
                 String programName = _textFieldController.text;
-                programs.add(programName);
-                await _prefs?.setStringList('programs', programs);
-                await _prefs?.setInt('${programName}_hours', _initialHours);
-                await _prefs?.setInt('${programName}_minutes', _initialMinutes);
-                await _prefs?.setDouble('${programName}_temperature', _targetTemperature);
-                await _prefs?.setDouble('${programName}_temperature_offset', _temperatureOffset);
-                await _prefs?.setString('selected_program', programName);
-                _program = programName;
-
+                Program program = Program(id:null, name: programName, hours: _initialHours, minutes: _initialMinutes, temperature: _targetTemperature, temperatureOffset: _temperatureOffset, shakerEnabled: _shakerEnabled);
+                print(program.toJson());
+                int id = await DBProvider.db.insertProgram(program);
+                program.id = id;
+                print(program.toJson());
+                await _prefs?.setInt('selected_program', program.id ?? 0);
+                _program = program;
+                print(_program?.toJson());
                 Navigator.pop(context);
               },
             ),
@@ -377,8 +422,9 @@ class _MyHomePageState extends State<MyHomePage> {
     _prefs?.setInt('current_hours', _hours);
     _prefs?.setInt('current_minutes', _minutes);
     _prefs?.setDouble('current_temperature', _targetTemperature);
-    _prefs?.setString('current_program', _program);
+    _prefs?.setInt('selected_program', _program?.id ?? 0);
     _prefs?.setDouble('current_temperature_offset', _temperatureOffset);
+    _prefs?.setBool('current_shaker_enabled', _shakerEnabled);
   }
 
   @override
@@ -423,7 +469,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     mainAxisAlignment: MainAxisAlignment.start,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Текущая температура:'),
+                      const Text('Текущая\nтемпература:'),
                       Text(
                         '$_currentTemperature °C',
                         style: Theme.of(context).textTheme.headlineMedium,
@@ -434,7 +480,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text('Целевая температура:'),
+                      const Text('Целевая\nтемпература:', textAlign: TextAlign.end,),
                       GestureDetector(
                         onTap: () {
                           showTemperaturePicker(context);
@@ -454,7 +500,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   Text('Программа:', style: Theme.of(context).textTheme.bodyMedium),
                 GestureDetector(onTap: () {
                   showProgramsPicker(context);
-                }, child: Text('$_program', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.blue))),
+                }, child: Text('${_program?.name ?? 'Не выбрана'}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.blue))),
                 ],
               ),
               Row(
@@ -480,17 +526,28 @@ class _MyHomePageState extends State<MyHomePage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  FloatingActionButton(onPressed: () {
+                  Text('Перемешивание:', style: Theme.of(context).textTheme.bodyMedium),
+                  Switch(value: _shakerEnabled, onChanged: (value) {
+                    setState(() {
+                      _shakerEnabled = value;
+                    });
+                  }),
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  FloatingActionButton.small(onPressed: () {
                     _resetTimer();
                   }, child: Icon(Icons.stop), foregroundColor: Colors.white, backgroundColor: Colors.grey.shade300, shape: CircleBorder(),),
-                  FloatingActionButton.large(onPressed: () {
+                  FloatingActionButton(onPressed: () {
                     if (_timerRunning) {
                       _stopTimer();
                     } else {
                       _startTimer();
                     }
                   }, child: _timerRunning ? Icon(Icons.pause) : Icon(Icons.play_arrow), foregroundColor: Colors.white, backgroundColor: Colors.redAccent, shape: CircleBorder(),),
-                  FloatingActionButton(onPressed: () {
+                  FloatingActionButton.small(onPressed: () {
                     _displayTextInputDialog(context);
                   }, child: Icon(Icons.save), foregroundColor: Colors.white, backgroundColor: Colors.lightBlue.shade100, shape: CircleBorder(),),
                 ],
@@ -499,13 +556,7 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
         
-      bottomNavigationBar: BottomNavigationBar(
-        items: [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Главная'),
-          BottomNavigationBarItem(icon: Icon(Icons.food_bank), label: 'Программы'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Настройки'),
-        ],
-      ),
+      bottomNavigationBar: ButtomNavigation(),
     );
   }
 }

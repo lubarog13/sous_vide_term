@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+    <string>We need Bluetooth to connect to Arduino</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>We need Bluetooth to connect to Arduino</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
