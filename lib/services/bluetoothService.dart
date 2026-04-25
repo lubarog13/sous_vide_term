@@ -2,11 +2,11 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:async';
 import 'dart:convert';
 
-class _BluetoothService {
+class CustomBluetoothService {
   // Singleton instance
-  static final _BluetoothService _instance = _BluetoothService._internal();
-  factory _BluetoothService() => _instance;
-  _BluetoothService._internal();
+  static final CustomBluetoothService _instance = CustomBluetoothService._internal();
+  factory CustomBluetoothService() => _instance;
+  CustomBluetoothService._internal();
 
   // Flutter Blue Plus instance
   final FlutterBluePlus flutterBlue = FlutterBluePlus();

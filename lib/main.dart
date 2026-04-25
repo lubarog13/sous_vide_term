@@ -1,44 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_picker_plus/flutter_picker_plus.dart';
-
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_timer_countdown/flutter_timer_countdown.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'database.dart';
 import 'programModel.dart';
 import 'programList.dart';
 import 'buttomNavigation.dart';
+import 'utils/utils.dart';
+import 'services/bluetoothService.dart';
   
-void main() {
+final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.light);
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final isDarkMode = prefs.getBool('is_dark_mode') ?? false;
+  themeModeNotifier.value = isDarkMode ? ThemeMode.dark : ThemeMode.light;
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.lightBlue),
-      ),
-      home: const MyHomePage(title: 'Умный градусник'),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (context, themeMode, child) {
+        return MaterialApp(
+          title: 'Flutter Demo',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.lightBlue,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+          ),
+          themeMode: themeMode,
+          home: const MyHomePage(title: 'Умный градусник'),
+        );
+      },
     );
   }
 }
@@ -83,28 +96,36 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _timerRunning = false;
   SharedPreferences? _prefs;
   TextEditingController _textFieldController = TextEditingController();
+  bool _isFahrenheit = false;
 
 
-
+final CustomBluetoothService _bluetoothService = CustomBluetoothService();
+  List<BluetoothDevice> _devices = [];
+  bool _isScanning = false;
+  bool _isConnected = false;
+  String _statusMessage = "Выберите устройство";
+  String _receivedMessage = "";
   @override
  void initState()  {
   print('initState');
     super.initState();
     print('initState');
     _initPrefs();
-
+    _setupBluetoothListeners();
   }
 
   @override
   void dispose() {
     saveState();
     DBProvider.db.close();
+    _bluetoothService.dispose();
     super.dispose();
   }
 
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
     int? selectedProgram = _prefs?.getInt('selected_program') ;
+    _isFahrenheit = _prefs?.getBool('is_fahrenheit') ?? false;
     if (selectedProgram != null && selectedProgram != 0) {
       Program program = await DBProvider.db.getProgram(selectedProgram);
       _program = program;
@@ -175,17 +196,144 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  void _setupBluetoothListeners() {
+    // Listen to connection status
+    _bluetoothService.connectionStatus.listen((isConnected) {
+      setState(() {
+        _isConnected = isConnected;
+        _statusMessage = isConnected ? "Подключено к устройству" : "Не подключено к устройству";
+      });
+    });
+    
+    // Listen to received data
+    _bluetoothService.receivedData.listen((data) {
+      setState(() {
+        _receivedMessage = data;
+      });
     });
   }
 
+  Future<void> _requestPermissions() async {
+    // Request location permission for Android
+    if (Theme.of(context).platform == TargetPlatform.android) {
+      await Permission.locationWhenInUse.request();
+      if (!await Permission.locationWhenInUse.isGranted) {
+        setState(() {
+          _statusMessage = "Необходимо разрешить доступ к местоположению";
+        });
+        return;
+      }
+    }
+    
+    // Request Bluetooth permissions
+    await Permission.bluetooth.request();
+    await Permission.bluetoothConnect.request();
+    await Permission.bluetoothScan.request();
+    if (!await Permission.bluetooth.isGranted) {
+      setState(() {
+        _statusMessage = "Необходимо разрешить Bluetooth";
+      });
+      return;
+    }
+    if (!await Permission.bluetoothConnect.isGranted) {
+      setState(() {
+        _statusMessage = "Необходимо разрешить Bluetooth Connect";
+      });
+      return;
+    }
+    if (!await Permission.bluetoothScan.isGranted) {
+      setState(() {
+        _statusMessage = "Необходимо разрешить Bluetooth Scan";
+      });
+      return;
+    }
+  }
+
+  Future<void> _scanDevices() async {
+    // Request permissions first
+    await _requestPermissions();
+    
+    setState(() {
+      _isScanning = true;
+      _devices.clear();
+      _statusMessage = "Сканирование устройств...";
+    });
+    
+    try {
+      await _bluetoothService.scanDevices(10).forEach((devices) {
+        setState(() {
+          _devices = devices;
+        });
+      });
+      
+      setState(() {
+        _isScanning = false;
+        if (_devices.isEmpty) {
+          _statusMessage = "Не найдено устройств. Убедитесь, что устройство включено.";
+        } else {
+          _statusMessage = "Найдено ${_devices.length} устройств";
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isScanning = false;
+        _statusMessage = "Ошибка: $e";
+      });
+    }
+  }
+
+  Future<void> _connectToDevice(BluetoothDevice device) async {
+    setState(() {
+      _statusMessage = "Подключение к ${device.name}...";
+    });
+    
+    bool success = await _bluetoothService.connectToDevice(device);
+    
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Подключено к ${device.name}"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Не удалось подключиться"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  Future<void> _sendCommand(String command) async {
+    try {
+      await _bluetoothService.sendCommand(command);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Ошибка: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+
+  void showDevicePicker(BuildContext context) {
+    Picker(
+      adapter: PickerDataAdapter<String>(
+        pickerData: _devices.map((device) => device.name).toList(),
+      ),
+      confirmText: 'Подключить',
+      cancelText: 'Отмена',
+      confirmTextStyle: TextStyle(fontSize: 20, color: Colors.blue),
+      title: const Text('Выберите устройство'),
+      onConfirm: (Picker picker, List<int> value) {
+        _connectToDevice(_devices[value[0]]);
+      },
+    ).showModal(context);
+  }
   void _startTimer() {
     setState(() {
       _timerRunning = true;
@@ -239,7 +387,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void createTimerPlaceholder() {
-    _timerPlaceholder = Text('$_hours : $_minutes', style: TextStyle(fontSize: 50));
+    _timerPlaceholder = Text('$_hours : ${_minutes.toString().padLeft(2, '0')}', style: TextStyle(fontSize: 50));
   }
 
 
@@ -307,7 +455,7 @@ class _MyHomePageState extends State<MyHomePage> {
     Picker(
       adapter: NumberPickerAdapter(data: [
         const NumberPickerColumn(begin: 0, end: 24),
-        const NumberPickerColumn(begin: 0, end: 60),
+        const NumberPickerColumn(begin: 0, end: 59),
       ]),
       delimiter: [
       PickerDelimiter(
@@ -347,8 +495,8 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> showProgramsPicker(BuildContext context) async {
     List<Program> programs = await DBProvider.db.getPrograms();
     Picker(
-      adapter:  PickerDataAdapter<Program>(
-      pickerData: programs.map((program) => program.name).toList()
+      adapter:  PickerDataAdapter<String>(
+      pickerData: programs.map((program) => program.name + ' [${program.id}]').toList()
     ),
     confirmText: 'Установить',
     cancelText: 'Отмена',
@@ -399,19 +547,36 @@ class _MyHomePageState extends State<MyHomePage> {
             ElevatedButton(
               child: Text('Сохранить'),
               onPressed: () async {
-                List<String> programs = _prefs?.getStringList('programs') ?? [];
                 String programName = _textFieldController.text;
                 Program program = Program(id:null, name: programName, hours: _initialHours, minutes: _initialMinutes, temperature: _targetTemperature, temperatureOffset: _temperatureOffset, shakerEnabled: _shakerEnabled);
                 print(program.toJson());
                 int id = await DBProvider.db.insertProgram(program);
                 program.id = id;
+                
                 print(program.toJson());
                 await _prefs?.setInt('selected_program', program.id ?? 0);
-                _program = program;
+                setState(() {
+                  _program = program;
+
+                });
                 print(_program?.toJson());
                 Navigator.pop(context);
               },
             ),
+            if (_program?.id != null) ...[
+              ElevatedButton(
+              child: Text('Обновить'),
+              onPressed: () async {
+                String programName = _textFieldController.text;
+                Program program = Program(id: _program?.id, name: programName.isEmpty ? _program?.name ?? '' : programName, hours: _initialHours, minutes: _initialMinutes, temperature: _targetTemperature, temperatureOffset: _temperatureOffset, shakerEnabled: _shakerEnabled);
+                await DBProvider.db.updateProgram(program);
+                setState(() {
+                  _program = program;
+                });
+                Navigator.pop(context);
+              },
+            ),
+            ],
           ],
         );
       },
@@ -446,17 +611,18 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body:  Padding(
+      body:  SingleChildScrollView(
+          
+         child:  SizedBox(
+              height: (MediaQuery.of(context).size.height - 150), child: Padding(
         padding: const EdgeInsets.all(30.0),
         child: Container(
-        width: double.infinity,
-        height: double.infinity,
         alignment: Alignment.center,
         // Added padding around the Row using Padding widget
         child: 
            Column(
             mainAxisAlignment: .start,
-            mainAxisSize: MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             
             spacing: 30,
@@ -471,7 +637,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     children: [
                       const Text('Текущая\nтемпература:'),
                       Text(
-                        '$_currentTemperature °C',
+                        Utils.getTemperatureString(_currentTemperature, _isFahrenheit),
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
                     ],
@@ -486,7 +652,7 @@ class _MyHomePageState extends State<MyHomePage> {
                           showTemperaturePicker(context);
                         },
                         child: Text(
-                          '$_targetTemperature °C',
+                          Utils.getTemperatureString(_targetTemperature, _isFahrenheit),
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                       ),
@@ -500,7 +666,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   Text('Программа:', style: Theme.of(context).textTheme.bodyMedium),
                 GestureDetector(onTap: () {
                   showProgramsPicker(context);
-                }, child: Text('${_program?.name ?? 'Не выбрана'}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.blue))),
+                }, child: Text('${_program?.name ?? 'Не выбрана'} ${_program?.id != null ? ' [${_program?.id}]' : ''}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.blue))),
                 ],
               ),
               Row(
@@ -509,20 +675,29 @@ class _MyHomePageState extends State<MyHomePage> {
                   Text('Погрешность температуры:', style: Theme.of(context).textTheme.bodyMedium),
                 GestureDetector(onTap: () {
                   showTemperatureOffsetPicker(context);
-                }, child: Text('±$_temperatureOffset °C', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.red.shade400))),
+                }, child: Text('±${Utils.getTemperatureString(_temperatureOffset, _isFahrenheit)}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.red.shade400))),
                 ],
               ),
-              Flexible(
-                flex: 1,
-                child: Center(
+              Row(
+                children: [
+                  GestureDetector(onTap: () {
+                    if (!_isConnected && !_isScanning) {
+                      _scanDevices();
+                    }
+                  }, child: Text(_statusMessage, softWrap: true, style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: _isScanning ? Colors.grey.shade400 : _isConnected ? Colors.green.shade400 : Colors.red.shade400))),
+                ],
+              ),
+              Spacer(),
+                 Center(
                   child: GestureDetector(
                     onTap: () {
                       showTimePicker(context);
                     },
                     child: _timerRunning ? _timer : _timerPlaceholder
                   ),
-                ),
               ),
+                            Spacer(),
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -539,24 +714,26 @@ class _MyHomePageState extends State<MyHomePage> {
                 children: [
                   FloatingActionButton.small(onPressed: () {
                     _resetTimer();
-                  }, child: Icon(Icons.stop), foregroundColor: Colors.white, backgroundColor: Colors.grey.shade300, shape: CircleBorder(),),
-                  FloatingActionButton(onPressed: () {
+                  }, heroTag: 'stop_timer', child: Icon(Icons.stop), foregroundColor: Colors.white, backgroundColor: Colors.grey.shade300, shape: CircleBorder(),),
+                  FloatingActionButton(heroTag: 'start_timer', onPressed: () {
                     if (_timerRunning) {
                       _stopTimer();
                     } else {
                       _startTimer();
                     }
                   }, child: _timerRunning ? Icon(Icons.pause) : Icon(Icons.play_arrow), foregroundColor: Colors.white, backgroundColor: Colors.redAccent, shape: CircleBorder(),),
-                  FloatingActionButton.small(onPressed: () {
+                  FloatingActionButton.small(
+                    heroTag: 'save_program',
+                    onPressed: () {
                     _displayTextInputDialog(context);
                   }, child: Icon(Icons.save), foregroundColor: Colors.white, backgroundColor: Colors.lightBlue.shade100, shape: CircleBorder(),),
                 ],
               ),
             ]),
-          ),
+          ),),),
         ),
         
-      bottomNavigationBar: ButtomNavigation(),
+      bottomNavigationBar: ButtomNavigation(currentIndex: 0),
     );
   }
 }

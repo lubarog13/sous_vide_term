@@ -56,6 +56,7 @@ class DBProvider {
   Future<List<Program>> getPrograms() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('Program');
+    print(maps);
     if (maps.isEmpty) {
       await insertInitialData();
       return await getPrograms();

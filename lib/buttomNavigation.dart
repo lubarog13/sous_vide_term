@@ -3,14 +3,13 @@ import 'main.dart';
 import 'programList.dart';
 import 'settings.dart';
 class ButtomNavigation extends StatelessWidget {
-  ButtomNavigation({super.key});
-  int _currentIndex = 0;
+  ButtomNavigation({super.key, required this.currentIndex});
+  final int currentIndex;
   @override
   Widget build(BuildContext context) {
     return BottomNavigationBar(
-      currentIndex: _currentIndex,
+      currentIndex: currentIndex,
       onTap: (index) {
-        _currentIndex = index;
         if (index == 0) {
           Navigator.push(context, MaterialPageRoute(builder: (context) => MyHomePage(title: 'Главная')));
         } 

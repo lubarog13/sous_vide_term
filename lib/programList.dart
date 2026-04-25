@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'programModel.dart';
 import 'database.dart';
 import 'buttomNavigation.dart';
+import 'utils/utils.dart';
 class ProgramList extends StatefulWidget {
   const ProgramList({super.key, required this.title});
 
@@ -15,14 +16,25 @@ class ProgramList extends StatefulWidget {
   class _ProgramListState extends State<ProgramList> {
 
   List<Program> programs = [];
+  bool isFahrenheit = false;
     @override
     void initState() {
       super.initState();
+      print('init');
       getPrograms();
+      SharedPreferences.getInstance().then((prefs) {
+        setState(() {
+          isFahrenheit = prefs.getBool('is_fahrenheit') ?? false;
+        });
+      });
     }
 
   void getPrograms() async {
-    programs = await DBProvider.db.getPrograms();
+      DBProvider.db.getPrograms().then((value) {
+        setState(() {
+          programs = value;
+        });
+    });
   }
 
   @override
@@ -37,24 +49,23 @@ class ProgramList extends StatefulWidget {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Column(
-        children: [
-          ListView.builder(
-            itemBuilder: (context, index) {
-              return Card(child: _SampleCard(program: programs[index]));
-            },
-          ),
-        ],
-      ),
-        bottomNavigationBar: ButtomNavigation(),
+      body: programs.isNotEmpty ? ListView.builder(
+                        itemCount: programs.length,
+                        scrollDirection: Axis.vertical,
+                        shrinkWrap: true,
+                        itemBuilder: (context, index) {
+                          return Card(child: _SampleCard(program: programs[index], isFahrenheit: isFahrenheit));
+                        },
+                      ) : Center(child: Text('Программы не найдены')),
+        bottomNavigationBar: ButtomNavigation(currentIndex: 1),
     );
   }
 }
 
 class _SampleCard extends StatelessWidget {
-  const _SampleCard({required this.program});
+  const _SampleCard({required this.program, required this.isFahrenheit});
   final Program program;
-
+  final bool isFahrenheit;
   @override
   Widget build(BuildContext context) {
     return GestureDetector(onTap: () {
@@ -69,14 +80,16 @@ class _SampleCard extends StatelessWidget {
     }, child: SizedBox(
         width: 300,
         height: 100,
-        child: Center(child: Column(
+        child: Padding(padding: const EdgeInsets.only(left: 10, right: 10, top: 15, bottom: 10), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(program.name),
+            Text(program.name, style: Theme.of(context).textTheme.bodyLarge),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${program.hours}:${program.minutes}'),
-                Text('${program.temperature} °C'),
+                Text('${program.hours.toString().padLeft(2, '0')}:${program.minutes.toString().padLeft(2, '0')}', style: Theme.of(context).textTheme.bodyMedium),
+                  Text('${Utils.getTemperatureString(program.temperature, isFahrenheit)}', style: Theme.of(context).textTheme.bodyMedium),
               ],
             ),
           ],
