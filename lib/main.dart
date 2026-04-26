@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_timer_countdown/flutter_timer_countdown.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:step_progress_indicator/step_progress_indicator.dart';
 import 'database.dart';
 import 'programModel.dart';
 import 'programList.dart';
@@ -36,7 +37,7 @@ class _MyAppState extends State<MyApp> {
       valueListenable: themeModeNotifier,
       builder: (context, themeMode, child) {
         return MaterialApp(
-          title: 'Flutter Demo',
+          title: 'Умный градусник',
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
             useMaterial3: true,
@@ -82,6 +83,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Program? _program;
   int _hours = 20;
   int _minutes = 30;
+  int _seconds = 0;
   int _initialHours = 20;
   int _initialMinutes = 30;
   DateTime _endTime = DateTime.now().add(
@@ -134,6 +136,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       _initialMinutes = program.minutes;
       _hours = _initialHours;
       _minutes = _initialMinutes;
+      _seconds = 0;
       _endTime = DateTime.now().add(
         Duration(
           hours: _hours,
@@ -146,12 +149,14 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       }  else {
           _hours = _prefs?.getInt('current_hours') ?? 20;
           _minutes = _prefs?.getInt('current_minutes') ?? 30;
+          _seconds = _prefs?.getInt('current_seconds') ?? 0;
           _initialHours = _hours;
           _initialMinutes = _minutes;
           _endTime = DateTime.now().add(
             Duration(
               hours: _hours,
               minutes: _minutes,
+              seconds: _seconds,
             ),
           );
           _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
@@ -180,12 +185,14 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                 } else {
                   _hours = _prefs?.getInt('current_hours') ?? 20;
                   _minutes = _prefs?.getInt('current_minutes') ?? 30;
+                  _seconds = _prefs?.getInt('current_seconds') ?? 0;
                   _initialHours = _hours;
                   _initialMinutes = _minutes;
                   _endTime = DateTime.now().add(
                     Duration(
                       hours: _hours,
                       minutes: _minutes,
+                      seconds: _seconds,
                     ),
                   );
                   _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
@@ -208,7 +215,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     // Listen to received data
     _bluetoothService.receivedData.listen((data) {
       setState(() {
-        _receivedMessage = data;
+        _parseReceivedMessage(data);
       });
     });
   }
@@ -307,6 +314,9 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   }
   
   Future<void> _sendCommand(String command) async {
+    if (!_isConnected) {
+      return;
+    }
     try {
       await _bluetoothService.sendCommand(command);
     } catch (e) {
@@ -334,9 +344,48 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       },
     ).showModal(context);
   }
+
+  void _parseReceivedMessage(String message) {
+    print(message);
+    setState(() {
+      try {
+      if (message.startsWith('T:')) {
+        _currentTemperature = double.parse(message.substring(2));
+      } else if (message.startsWith('O:')) {
+        _temperatureOffset = double.parse(message.substring(2));
+      } else if (message.startsWith('Tt:')) {
+        _targetTemperature = double.parse(message.substring(3));
+      } else if (message.startsWith('M:')) {
+        int minutes = int.parse(message.substring(2));
+        if (minutes > 0) {
+          _hours = minutes ~/ 60;
+          _minutes = minutes % 60;
+          _endTime = DateTime.now().add(
+            Duration(
+              hours: _hours,
+              minutes: _minutes,
+              seconds: _seconds,
+            ),
+          );
+          _timer = null;
+          createTimer();
+        }
+      } else if (message.startsWith('S:')) {
+          _shakerEnabled = message.substring(2) == '1' ? true : false;
+        }
+      } catch (e) {
+        print(e);
+      }
+    });
+  }
   void _startTimer() {
     setState(() {
       _timerRunning = true;
+      _sendCommand('Tt:${_targetTemperature}');
+      _sendCommand('O:${_temperatureOffset}');
+      _sendCommand('S:${_shakerEnabled ? 1 : 0}');
+      _sendCommand('M:${_hours * 60 + _minutes}');
+      _sendCommand('START');
       createTimer();
     });
   }
@@ -344,6 +393,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   void _stopTimer() {
     setState(() {
       _timerRunning = false;
+      _sendCommand('STOP');
       createTimerPlaceholder();
       _timer = null;
     });
@@ -354,10 +404,12 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       _timerRunning = false;
       _hours = _initialHours;
       _minutes = _initialMinutes;
+      _seconds = 0;
       _endTime = DateTime.now().add(
         Duration(
           hours: _hours,
           minutes: _minutes,
+          seconds: _seconds,
         ),
       );
       createTimerPlaceholder();
@@ -381,6 +433,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
         setState(() {
           _hours = duration.inHours;
           _minutes = duration.inMinutes % 60;
+          _seconds = duration.inSeconds % 60;
         });
       },
     );
@@ -416,6 +469,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       onConfirm: (Picker picker, List<int> value) {
         setState(() {
           _targetTemperature = value[0] + value[1] / 10;
+          _sendCommand('Tt:${_targetTemperature}');
         });
       },
     ).showModal(context);
@@ -446,6 +500,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       onConfirm: (Picker picker, List<int> value) {
         setState(() {
           _temperatureOffset = value[0] + value[1] / 10;
+          _sendCommand('O:${_temperatureOffset}');
         });
       },
     ).showModal(context);
@@ -475,14 +530,18 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       title: const Text('Выберите время'),
       onConfirm: (Picker picker, List<int> value) {
         setState(() {
+          _timerRunning = false;
           _hours = value[0];
           _minutes = value[1];
+          _seconds = 0;
           _initialHours = _hours;
           _initialMinutes = _minutes;
+          _seconds = 0;
           _endTime = DateTime.now().add(
             Duration(
               hours: _hours,
               minutes: _minutes,
+              seconds: _seconds,
             ),
           );
           _timer = null;
@@ -510,10 +569,12 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           _initialMinutes = programs[value[0]].minutes;
           _hours = _initialHours;
           _minutes = _initialMinutes;
+          _seconds = 0;
           _endTime = DateTime.now().add(
             Duration(
               hours: _hours,
               minutes: _minutes,
+              seconds: _seconds,
             ),
           );
           _targetTemperature = programs[value[0]].temperature;
@@ -612,7 +673,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
         title: Text(widget.title),
       ),
       body:  SingleChildScrollView(
-          
+        physics: AlwaysScrollableScrollPhysics(),
          child:  SizedBox(
               height: (MediaQuery.of(context).size.height - 150), child: Padding(
         padding: const EdgeInsets.all(30.0),
@@ -693,7 +754,26 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                     onTap: () {
                       showTimePicker(context);
                     },
-                    child: _timerRunning ? _timer : _timerPlaceholder
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        CircularStepProgressIndicator(
+                          totalSteps: 100,
+                          currentStep:  (((_initialHours - _hours) * 60 * 60 + (_initialMinutes - _minutes) * 60 - _seconds) / (_initialHours * 60 * 60 + _initialMinutes * 60 ) * 100).toInt(),
+                          width: 200,
+                          height: 200,
+                          stepSize: 10,
+                          selectedColor: Colors.blueAccent.shade400,
+                          unselectedColor: Colors.grey.shade300,
+                          selectedStepSize: 10,
+                          roundedCap: (_, __) => true,
+                        ),
+                        if (_timerRunning)
+                          _timer!
+                        else
+                          _timerPlaceholder!
+                      ],
+                    ),
                   ),
               ),
                             Spacer(),
