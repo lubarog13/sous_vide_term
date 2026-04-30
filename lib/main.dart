@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_picker_plus/flutter_picker_plus.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:flutter_timer_countdown/flutter_timer_countdown.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -105,6 +105,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   List<BluetoothDevice> _devices = [];
   bool _isScanning = false;
   bool _isConnected = false;
+  bool _scanSuccess = false;
   String _statusMessage = "Выберите устройство";
   String _receivedMessage = "";
   @override
@@ -208,6 +209,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     _bluetoothService.connectionStatus.listen((isConnected) {
       setState(() {
         _isConnected = isConnected;
+        _scanSuccess = _isConnected;
         _statusMessage = isConnected ? "Подключено к устройству" : "Не подключено к устройству";
       });
     });
@@ -257,6 +259,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   }
 
   Future<void> _scanDevices() async {
+    const int scanDurationSeconds = 10;
     // Request permissions first
     await _requestPermissions();
     
@@ -267,23 +270,35 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     });
     
     try {
-      await _bluetoothService.scanDevices(10).forEach((devices) {
+      print("Scanning devices");
+      final subscription = _bluetoothService
+          .scanDevices(scanDurationSeconds)
+          .listen((devices) {
         setState(() {
           _devices = devices;
+          print("Devices: ${_devices.map((result) => result.name ?? result.address).toList()}");
         });
       });
-      
+
+      await Future.delayed(const Duration(seconds: scanDurationSeconds));
+      await subscription.cancel();
+      await _bluetoothService.stopScan();
+
+      print("Devices: ${_devices.length}");
       setState(() {
         _isScanning = false;
         if (_devices.isEmpty) {
           _statusMessage = "Не найдено устройств. Убедитесь, что устройство включено.";
+          _scanSuccess = false;
         } else {
           _statusMessage = "Найдено ${_devices.length} устройств";
+          _scanSuccess = true;
         }
       });
     } catch (e) {
       setState(() {
         _isScanning = false;
+        _scanSuccess = false;
         _statusMessage = "Ошибка: $e";
       });
     }
@@ -291,7 +306,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
     setState(() {
-      _statusMessage = "Подключение к ${device.name}...";
+      _statusMessage = "Подключение к ${device.name ?? device.address}...";
     });
     
     bool success = await _bluetoothService.connectToDevice(device);
@@ -299,7 +314,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Подключено к ${device.name}"),
+          content: Text("Подключено к ${device.name ?? device.address}"),
           backgroundColor: Colors.green,
         ),
       );
@@ -333,7 +348,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   void showDevicePicker(BuildContext context) {
     Picker(
       adapter: PickerDataAdapter<String>(
-        pickerData: _devices.map((device) => device.name).toList(),
+        pickerData: _devices.map((device) => device.name ?? device.address).toList(),
       ),
       confirmText: 'Подключить',
       cancelText: 'Отмена',
@@ -674,8 +689,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       ),
       body:  SingleChildScrollView(
         physics: AlwaysScrollableScrollPhysics(),
-         child:  SizedBox(
-              height: (MediaQuery.of(context).size.height - 150), child: Padding(
+        child: Padding(
         padding: const EdgeInsets.all(30.0),
         child: Container(
         alignment: Alignment.center,
@@ -739,16 +753,31 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                 }, child: Text('±${Utils.getTemperatureString(_temperatureOffset, _isFahrenheit)}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.red.shade400))),
                 ],
               ),
+              SizedBox(width: MediaQuery.of(context).size.width * 0.8, child: 
               Row(
+                spacing: 10,
                 children: [
+                  Flexible(
+                    flex: 1,
+                    child: 
                   GestureDetector(onTap: () {
-                    if (!_isConnected && !_isScanning) {
+                    if (!_isConnected && !_isScanning && !_scanSuccess) {
                       _scanDevices();
+                    } else if (_scanSuccess) {
+                      showDevicePicker(context);
                     }
-                  }, child: Text(_statusMessage, softWrap: true, style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: _isScanning ? Colors.grey.shade400 : _isConnected ? Colors.green.shade400 : Colors.red.shade400))),
+                  },
+                    child: Text(_statusMessage, softWrap: true, style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: _isScanning ? Colors.grey.shade400 : _isConnected ? Colors.green.shade400 :  _scanSuccess ? Colors.blue.shade400 : Colors.red.shade400))),
+                  ),
+                  if (_scanSuccess) ...[
+                    SizedBox(width: 30),
+                    GestureDetector(onTap: () {
+                      _scanDevices();
+                    }, child: Text('Сканировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Colors.grey.shade500))),
+                  ],
                 ],
               ),
-              Spacer(),
+              ),
                  Center(
                   child: GestureDetector(
                     onTap: () {
@@ -776,7 +805,6 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                     ),
                   ),
               ),
-                            Spacer(),
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -810,7 +838,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                 ],
               ),
             ]),
-          ),),),
+          ),),
         ),
         
       bottomNavigationBar: ButtomNavigation(currentIndex: 0),

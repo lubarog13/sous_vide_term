@@ -1,6 +1,7 @@
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 class CustomBluetoothService {
   // Singleton instance
@@ -8,13 +9,10 @@ class CustomBluetoothService {
   factory CustomBluetoothService() => _instance;
   CustomBluetoothService._internal();
 
-  // Flutter Blue Plus instance
-  final FlutterBluePlus flutterBlue = FlutterBluePlus();
-  
   // Connected device
   BluetoothDevice? _connectedDevice;
-  BluetoothCharacteristic? _txCharacteristic;
-  BluetoothCharacteristic? _rxCharacteristic;
+  BluetoothConnection? _connection;
+  StreamSubscription<Uint8List>? _inputSubscription;
   
   // Stream controllers for UI updates
   final _connectionStatus = StreamController<bool>.broadcast();
@@ -25,69 +23,71 @@ class CustomBluetoothService {
   Stream<String> get receivedData => _receivedData.stream;
   BluetoothDevice? get connectedDevice => _connectedDevice;
   
-  // UUIDs for Bluetooth communication
-  final String serviceUUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
-  final String txUUID = "0000ffe1-0000-1000-8000-00805f9b34fb"; // Write
-  final String rxUUID = "0000ffe1-0000-1000-8000-00805f9b34fb"; // Read/Notify
-  
-  // Scan for devices
+  // Scan classic Bluetooth devices (paired and discoverable unpaired)
   Stream<List<BluetoothDevice>> scanDevices(int durationSeconds) async* {
-    // Start scan
-    await FlutterBluePlus.startScan(timeout: Duration(seconds: durationSeconds));
-    
-    // Listen to scan results
-    yield* FlutterBluePlus.scanResults.map(
-      (results) => results
-          .where((result) => result.device.name.isNotEmpty)
-          .map((result) => result.device)
-          .toList(),
+    final devicesByAddress = <String, BluetoothDevice>{};
+
+    print("Loading bonded classic Bluetooth devices");
+    final bondedDevices = await FlutterBluetoothSerial.instance.getBondedDevices();
+    for (final device in bondedDevices) {
+      devicesByAddress[device.address] = device;
+    }
+    yield devicesByAddress.values.toList();
+
+    print("Discovering unpaired classic Bluetooth devices");
+    final discovery = FlutterBluetoothSerial.instance.startDiscovery().timeout(
+      Duration(seconds: durationSeconds),
+      onTimeout: (sink) => sink.close(),
     );
+
+    await for (final result in discovery) {
+      devicesByAddress[result.device.address] = result.device;
+      yield devicesByAddress.values.toList();
+    }
   }
   
   // Stop scanning
   Future<void> stopScan() async {
-    await FlutterBluePlus.stopScan();
+    // No active scan stream in classic mode.
   }
   
   // Connect to device
   Future<bool> connectToDevice(BluetoothDevice device) async {
     try {
-      // Connect
-      await device.connect(license: License.commercial);
+      final bluetoothState = await FlutterBluetoothSerial.instance.state;
+      if (bluetoothState != BluetoothState.STATE_ON) {
+        throw Exception("Bluetooth is turned off");
+      }
+
+      final isDiscovering = await FlutterBluetoothSerial.instance.isDiscovering;
+      if (isDiscovering ?? false) {
+        await FlutterBluetoothSerial.instance.cancelDiscovery();
+      }
+
       _connectedDevice = device;
-      
-      // Discover services
-      List<BluetoothService> services = await device.discoverServices();
-      
-      // Find our service
-      for (BluetoothService service in services) {
-        if (service.uuid.toString().toLowerCase() == serviceUUID) {
-          // Find characteristics
-          for (BluetoothCharacteristic characteristic in service.characteristics) {
-            String charUUID = characteristic.uuid.toString().toLowerCase();
-            
-            if (charUUID == txUUID) {
-              _txCharacteristic = characteristic;
-            }
-            if (charUUID == rxUUID) {
-              _rxCharacteristic = characteristic;
-              // Listen to notifications
-              await characteristic.setNotifyValue(true);
-              characteristic.value.listen((value) {
-                if (value.isNotEmpty) {
-                  String data = utf8.decode(value);
-                  _receivedData.add(data.trim());
-                }
-              });
-            }
-          }
+      print(device.address);
+      print(device.name);
+      if (!device.isBonded) {
+        final bondResult = await FlutterBluetoothSerial.instance
+            .bondDeviceAtAddress(device.address);
+        if (bondResult != true) {
+          throw Exception("Pairing failed for ${device.name ?? device.address}");
         }
       }
-      
-      if (_txCharacteristic == null || _rxCharacteristic == null) {
-        throw Exception("Required characteristics not found");
-      }
-      
+      print("Bonded device: ${device.address}");
+      _connection = await BluetoothConnection.toAddress(device.address);
+      _inputSubscription?.cancel();
+      _inputSubscription = _connection!.input?.listen((bytes) {
+        if (bytes.isNotEmpty) {
+          final data = utf8.decode(bytes, allowMalformed: true).trim();
+          if (data.isNotEmpty) {
+            _receivedData.add(data);
+          }
+        }
+      }, onDone: () async {
+        await disconnect();
+      });
+
       _connectionStatus.add(true);
       return true;
     } catch (e) {
@@ -99,29 +99,29 @@ class CustomBluetoothService {
   
   // Send command to Arduino
   Future<void> sendCommand(String command) async {
-    if (_txCharacteristic == null || _connectedDevice == null) {
+    if (_connection == null || !_connection!.isConnected) {
       throw Exception("Not connected to any device");
     }
-    
-    // Add newline character as Arduino code expects it
-    String cmdWithNewline = "$command\n";
-    await _txCharacteristic!.write(utf8.encode(cmdWithNewline));
+
+    final cmdWithNewline = "$command\n";
+    _connection!.output.add(Uint8List.fromList(utf8.encode(cmdWithNewline)));
+    await _connection!.output.allSent;
   }
   
   // Disconnect
   Future<void> disconnect() async {
-    if (_connectedDevice != null) {
-      await _connectedDevice!.disconnect();
-    }
+    await _inputSubscription?.cancel();
+    _inputSubscription = null;
+    await _connection?.close();
+    _connection = null;
     _connectedDevice = null;
-    _txCharacteristic = null;
-    _rxCharacteristic = null;
     _connectionStatus.add(false);
   }
   
   // Check if Bluetooth is available
   Future<bool> isBluetoothAvailable() async {
-    return await FlutterBluePlus.isAvailable;
+    final state = await FlutterBluetoothSerial.instance.state;
+    return state == BluetoothState.STATE_ON;
   }
   
   // Cleanup
