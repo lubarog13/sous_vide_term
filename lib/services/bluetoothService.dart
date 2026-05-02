@@ -78,6 +78,7 @@ class CustomBluetoothService {
       _connection = await BluetoothConnection.toAddress(device.address);
       _inputSubscription?.cancel();
       _inputSubscription = _connection!.input?.listen((bytes) {
+        print("Bytes:"+bytes.toString());
         if (bytes.isNotEmpty) {
           final data = utf8.decode(bytes, allowMalformed: true).trim();
           if (data.isNotEmpty) {
@@ -126,6 +127,7 @@ class CustomBluetoothService {
   
   // Cleanup
   void dispose() {
+    disconnect();
     _connectionStatus.close();
     _receivedData.close();
   }

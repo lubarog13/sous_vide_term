@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'buttomNavigation.dart';
 import 'main.dart';
+import 'utils/texts.dart';
 
 class Settings extends StatefulWidget {
   const Settings({super.key, required this.title});
@@ -50,9 +51,7 @@ class _SettingsState extends State<Settings> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
+      appBar: AppBar(title: Text(widget.title)),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
@@ -66,9 +65,55 @@ class _SettingsState extends State<Settings> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Температурные единицы:'),
-              ToggleButtons(children: [Text('°C'), Text('°F')], borderRadius: BorderRadius.circular(10), isSelected: [ !_isFahrenheit, _isFahrenheit], onPressed: _changeFahrenheit),
+              ToggleButtons(
+                children: [Text('°C'), Text('°F')],
+                borderRadius: BorderRadius.circular(10),
+                isSelected: [!_isFahrenheit, _isFahrenheit],
+                onPressed: _changeFahrenheit,
+              ),
             ],
-          ),],
+          ),
+          Divider(),
+          SizedBox(height: 10),
+          GestureDetector(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: Text('Руководство пользователя'),
+                  content: SingleChildScrollView(child: Text(rulesText)),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      child: Text('Закрыть'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            child: Text(
+              'Руководство пользователя',
+              style: TextStyle(
+                fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ),
+          SizedBox(height: 20),
+          GestureDetector(
+            onTap: () {
+              showDialog(context: context, builder: (context) => AlertDialog(title: Text('Пользовательское соглашение'), content: SingleChildScrollView(child: Text(termsOfUseText)), actions: [
+                TextButton(onPressed: () {
+                  Navigator.of(context).pop();
+                }, child: Text('Закрыть')),
+              ],
+              ));
+            },
+            child: Text('Пользовательское соглашение', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Colors.grey.shade500),),
+          ),
+        ],
       ),
       bottomNavigationBar: ButtomNavigation(currentIndex: 2),
     );

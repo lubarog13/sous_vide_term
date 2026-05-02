@@ -11,6 +11,7 @@ import 'programList.dart';
 import 'buttomNavigation.dart';
 import 'utils/utils.dart';
 import 'services/bluetoothService.dart';
+import 'utils/colors.dart';
   
 final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.light);
 
@@ -39,14 +40,11 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           title: 'Умный градусник',
           theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
+            colorScheme: lightColorScheme,
             useMaterial3: true,
           ),
           darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.lightBlue,
-              brightness: Brightness.dark,
-            ),
+            colorScheme: darkColorScheme,
             useMaterial3: true,
           ),
           themeMode: themeMode,
@@ -79,7 +77,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
   double _targetTemperature = 50.0;
   double _currentTemperature = 0;
-  double _temperatureOffset = 0.0;
+  double _temperatureOffset = 0.5;
   Program? _program;
   int _hours = 20;
   int _minutes = 30;
@@ -99,6 +97,9 @@ class _MyHomePageState extends State<MyHomePage> {
   SharedPreferences? _prefs;
   TextEditingController _textFieldController = TextEditingController();
   bool _isFahrenheit = false;
+  String _deviceName = "";
+  String _deviceAddress = "";
+  BluetoothDevice? _connectedDevice;
 
 
 final CustomBluetoothService _bluetoothService = CustomBluetoothService();
@@ -110,9 +111,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   String _receivedMessage = "";
   @override
  void initState()  {
-  print('initState');
     super.initState();
-    print('initState');
     _initPrefs();
     _setupBluetoothListeners();
   }
@@ -161,7 +160,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
             ),
           );
           _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
-          _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.0;
+          _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.5;
           _shakerEnabled = _prefs?.getBool('current_shaker_enabled') ?? false;
         }
       } else {
@@ -181,7 +180,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
             ),
           );
           _targetTemperature = _program?.temperature ?? 50.0;
-          _temperatureOffset = _program?.temperatureOffset ?? 0.0;
+          _temperatureOffset = _program?.temperatureOffset ?? 0.5;
           _shakerEnabled = _program?.shakerEnabled ?? false;
                 } else {
                   _hours = _prefs?.getInt('current_hours') ?? 20;
@@ -197,10 +196,16 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                     ),
                   );
                   _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
-                  _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.0;
+                  _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? 0.5;
                   _shakerEnabled = _prefs?.getBool('current_shaker_enabled') ?? false;
                 }
               }
+    }
+    _deviceName = _bluetoothService.connectedDevice?.name ?? "";
+    _deviceAddress = _bluetoothService.connectedDevice?.address ?? "";
+    if (_deviceName.isNotEmpty && _deviceAddress.isNotEmpty) {
+      _connectedDevice = BluetoothDevice(name: _deviceName, address: _deviceAddress);
+      _connectToDevice(_connectedDevice!);
     }
   }
 
@@ -217,6 +222,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     // Listen to received data
     _bluetoothService.receivedData.listen((data) {
       setState(() {
+        print("Data:"+data);
         _parseReceivedMessage(data);
       });
     });
@@ -318,6 +324,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           backgroundColor: Colors.green,
         ),
       );
+      _deviceName = device.name ?? "";
+      _deviceAddress = device.address ?? "";
+      _prefs?.setString('device_name', _deviceName);
+      _prefs?.setString('device_address', _deviceAddress);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -360,17 +370,19 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     ).showModal(context);
   }
 
-  void _parseReceivedMessage(String message) {
-    print(message);
-    setState(() {
+  void _parseReceivedMessage(String msg) {
+              List<String> messages = msg.split('\n');
+
       try {
-      if (message.startsWith('T:')) {
-        _currentTemperature = double.parse(message.substring(2));
+      messages.forEach((message) {
+      if (message.startsWith('Ct:')) {
+        print("Some:"+message.substring(3));
+        _currentTemperature = double.parse(message.substring(3));
       } else if (message.startsWith('O:')) {
         _temperatureOffset = double.parse(message.substring(2));
       } else if (message.startsWith('Tt:')) {
         _targetTemperature = double.parse(message.substring(3));
-      } else if (message.startsWith('M:')) {
+      } else if (message.startsWith('M:') && _timerRunning) {
         int minutes = int.parse(message.substring(2));
         if (minutes > 0) {
           _hours = minutes ~/ 60;
@@ -388,10 +400,14 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       } else if (message.startsWith('S:')) {
           _shakerEnabled = message.substring(2) == '1' ? true : false;
         }
+        else if (message.startsWith('Tr:')) {
+          _timerRunning = message.substring(2) == '1' ? true : false; 
+        }
+      });
       } catch (e) {
+        print(msg);
         print(e);
       }
-    });
   }
   void _startTimer() {
     setState(() {
@@ -455,15 +471,17 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   }
 
   void createTimerPlaceholder() {
-    _timerPlaceholder = Text('$_hours : ${_minutes.toString().padLeft(2, '0')}', style: TextStyle(fontSize: 50));
+    _timerPlaceholder = Text('${_hours.toString().padLeft(2, '0')} : ${_minutes.toString().padLeft(2, '0')}', style: TextStyle(fontSize: 50));
   }
 
 
   void showTemperaturePicker(BuildContext context) {
+    int initTemperature = _targetTemperature.toInt();
+    int initTemperatureFloatPart = ((_targetTemperature - initTemperature.toDouble()) * 10).toInt();
     Picker(
       adapter: NumberPickerAdapter(data: [
-        const NumberPickerColumn(begin: 0, end: 100),
-        const NumberPickerColumn(begin: 0, end: 10),
+        NumberPickerColumn(begin: 0, end: 100, initValue: initTemperature),
+        NumberPickerColumn(begin: 0, end: 10, initValue: initTemperatureFloatPart),
       ]),
       delimiter: [
       PickerDelimiter(
@@ -491,10 +509,12 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   }
 
   void showTemperatureOffsetPicker(BuildContext context) {
+    int initTemperatureOffset = _temperatureOffset.toInt();
+    int initTemperatureOffsetFloatPart = ((_temperatureOffset - initTemperatureOffset.toDouble()) * 10).toInt();
     Picker(
       adapter: NumberPickerAdapter(data: [
-        const NumberPickerColumn(begin: 0, end: 99),
-        const NumberPickerColumn(begin: 0, end: 10),
+        NumberPickerColumn(begin: 0, end: 99, initValue: initTemperatureOffset),
+        NumberPickerColumn(begin: 0, end: 10, initValue: initTemperatureOffsetFloatPart),
       ]),
       delimiter: [
       PickerDelimiter(
@@ -509,7 +529,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     confirmText: 'Установить',
     cancelText: 'Отмена',
     looping: true,
-    confirmTextStyle: TextStyle(fontSize: 20, color: Colors.blue),
+    confirmTextStyle: TextStyle(fontSize: 20, color: Theme.of(context).colorScheme.primary),
     
       title: const Text('Выберите погрешность температуры'),
       onConfirm: (Picker picker, List<int> value) {
@@ -524,8 +544,8 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   void showTimePicker(BuildContext context) {
     Picker(
       adapter: NumberPickerAdapter(data: [
-        const NumberPickerColumn(begin: 0, end: 24),
-        const NumberPickerColumn(begin: 0, end: 59),
+        NumberPickerColumn(begin: 0, end: 24, initValue: _hours),
+        NumberPickerColumn(begin: 0, end: 59, initValue: _minutes),
       ]),
       delimiter: [
       PickerDelimiter(
@@ -540,7 +560,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     confirmText: 'Установить',
     cancelText: 'Отмена',
     looping: true,
-    confirmTextStyle: TextStyle(fontSize: 20, color: Colors.blue),
+    confirmTextStyle: TextStyle(fontSize: 20, color: Theme.of(context).colorScheme.primary),
     
       title: const Text('Выберите время'),
       onConfirm: (Picker picker, List<int> value) {
@@ -568,13 +588,21 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
 
   Future<void> showProgramsPicker(BuildContext context) async {
     List<Program> programs = await DBProvider.db.getPrograms();
+    programs.insert(0, Program(id: null, name: 'Не выбрана', hours: _initialHours, minutes: _initialMinutes, temperature: _targetTemperature, temperatureOffset: _temperatureOffset, shakerEnabled: _shakerEnabled));
+    if (_program != null && _program?.id != null) {
+      int index = programs.indexWhere((prog) => prog.id == _program!.id);
+      if (index >= 0) {
+        Program current = programs.removeAt(index);
+        programs.insert(0, current);
+      }
+    }
     Picker(
       adapter:  PickerDataAdapter<String>(
-      pickerData: programs.map((program) => program.name + ' [${program.id}]').toList()
+      pickerData: programs.map((program) => program.name + ' [${program.id}]').toList(),
     ),
     confirmText: 'Установить',
     cancelText: 'Отмена',
-    confirmTextStyle: TextStyle(fontSize: 20, color: Colors.blue),
+    confirmTextStyle: TextStyle(fontSize: 20, color: Theme.of(context).colorScheme.primary),
     
       title: const Text('Выберите программу'),
       onConfirm: (Picker picker, List<int> value) {
@@ -690,7 +718,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       body:  SingleChildScrollView(
         physics: AlwaysScrollableScrollPhysics(),
         child: Padding(
-        padding: const EdgeInsets.all(30.0),
+        padding: const EdgeInsets.all(10.0),
         child: Container(
         alignment: Alignment.center,
         // Added padding around the Row using Padding widget
@@ -700,8 +728,33 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             
-            spacing: 30,
+            spacing: 15,
             children: [
+              SizedBox(width: MediaQuery.of(context).size.width - 20, child: 
+              Row(
+                spacing: 10,
+                children: [
+                  Flexible(
+                    flex: 1,
+                    child: 
+                  GestureDetector(onTap: () {
+                    if (!_isConnected && !_isScanning && !_scanSuccess) {
+                      _scanDevices();
+                    } else if (_scanSuccess) {
+                      showDevicePicker(context);
+                    }
+                  },
+                    child: Text(_statusMessage, softWrap: true, style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: _isScanning ? Colors.grey.shade400 : _isConnected ? Theme.of(context).colorScheme.primary :  _scanSuccess ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error))),
+                  ),
+                  if (_scanSuccess) ...[
+                    SizedBox(width: 30),
+                    GestureDetector(onTap: () {
+                      _scanDevices();
+                    }, child: Text('Сканировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Colors.grey.shade500))),
+                  ],
+                ],
+              ),
+              ),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -735,49 +788,17 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                   ),
                 ],
               ),
+
               Row(
                 spacing: 10,
                 children: [
                   Text('Программа:', style: Theme.of(context).textTheme.bodyMedium),
                 GestureDetector(onTap: () {
                   showProgramsPicker(context);
-                }, child: Text('${_program?.name ?? 'Не выбрана'} ${_program?.id != null ? ' [${_program?.id}]' : ''}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.blue))),
+                }, child: Text('${_program?.name ?? 'Не выбрана'} ${_program?.id != null ? ' [${_program?.id}]' : ''}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Theme.of(context).colorScheme.tertiary))),
                 ],
               ),
-              Row(
-                spacing: 10,
-                children: [
-                  Text('Погрешность температуры:', style: Theme.of(context).textTheme.bodyMedium),
-                GestureDetector(onTap: () {
-                  showTemperatureOffsetPicker(context);
-                }, child: Text('±${Utils.getTemperatureString(_temperatureOffset, _isFahrenheit)}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.red.shade400))),
-                ],
-              ),
-              SizedBox(width: MediaQuery.of(context).size.width * 0.8, child: 
-              Row(
-                spacing: 10,
-                children: [
-                  Flexible(
-                    flex: 1,
-                    child: 
-                  GestureDetector(onTap: () {
-                    if (!_isConnected && !_isScanning && !_scanSuccess) {
-                      _scanDevices();
-                    } else if (_scanSuccess) {
-                      showDevicePicker(context);
-                    }
-                  },
-                    child: Text(_statusMessage, softWrap: true, style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: _isScanning ? Colors.grey.shade400 : _isConnected ? Colors.green.shade400 :  _scanSuccess ? Colors.blue.shade400 : Colors.red.shade400))),
-                  ),
-                  if (_scanSuccess) ...[
-                    SizedBox(width: 30),
-                    GestureDetector(onTap: () {
-                      _scanDevices();
-                    }, child: Text('Сканировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Colors.grey.shade500))),
-                  ],
-                ],
-              ),
-              ),
+              SizedBox(height: 10),
                  Center(
                   child: GestureDetector(
                     onTap: () {
@@ -789,10 +810,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                         CircularStepProgressIndicator(
                           totalSteps: 100,
                           currentStep:  (((_initialHours - _hours) * 60 * 60 + (_initialMinutes - _minutes) * 60 - _seconds) / (_initialHours * 60 * 60 + _initialMinutes * 60 ) * 100).toInt(),
-                          width: 200,
-                          height: 200,
+                          width: 180,
+                          height: 180,
                           stepSize: 10,
-                          selectedColor: Colors.blueAccent.shade400,
+                          selectedColor: Theme.of(context).colorScheme.tertiary,
                           unselectedColor: Colors.grey.shade300,
                           selectedStepSize: 10,
                           roundedCap: (_, __) => true,
@@ -805,7 +826,36 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                     ),
                   ),
               ),
-
+              SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  FloatingActionButton.small(onPressed: () {
+                    _resetTimer();
+                  }, heroTag: 'stop_timer', child: Icon(Icons.stop), foregroundColor: Theme.of(context).colorScheme.secondaryContainer, backgroundColor: Colors.grey.shade500, shape: CircleBorder(),),
+                  FloatingActionButton(heroTag: 'start_timer', onPressed: () {
+                    if (_timerRunning) {
+                      _stopTimer();
+                    } else {
+                      _startTimer();
+                    }
+                  }, child: _timerRunning ? Icon(Icons.pause) : Icon(Icons.play_arrow), foregroundColor: Theme.of(context).colorScheme.secondaryContainer, backgroundColor: Theme.of(context).colorScheme.error, shape: CircleBorder(),),
+                  FloatingActionButton.small(
+                    heroTag: 'save_program',
+                    onPressed: () {
+                    _displayTextInputDialog(context);
+                  }, child: Icon(Icons.save), foregroundColor: Theme.of(context).colorScheme.secondaryContainer, backgroundColor: Theme.of(context).colorScheme.tertiaryFixed, shape: CircleBorder(),),
+                ],
+              ),
+              Row(
+                spacing: 10,
+                children: [
+                  Text('Погрешность температуры:', style: Theme.of(context).textTheme.bodyMedium),
+                GestureDetector(onTap: () {
+                  showTemperatureOffsetPicker(context);
+                }, child: Text('±${Utils.getTemperatureString(_temperatureOffset, _isFahrenheit)}', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyLarge?.fontSize, color: Colors.red.shade400))),
+                ],
+              ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -817,26 +867,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                   }),
                 ],
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  FloatingActionButton.small(onPressed: () {
-                    _resetTimer();
-                  }, heroTag: 'stop_timer', child: Icon(Icons.stop), foregroundColor: Colors.white, backgroundColor: Colors.grey.shade300, shape: CircleBorder(),),
-                  FloatingActionButton(heroTag: 'start_timer', onPressed: () {
-                    if (_timerRunning) {
-                      _stopTimer();
-                    } else {
-                      _startTimer();
-                    }
-                  }, child: _timerRunning ? Icon(Icons.pause) : Icon(Icons.play_arrow), foregroundColor: Colors.white, backgroundColor: Colors.redAccent, shape: CircleBorder(),),
-                  FloatingActionButton.small(
-                    heroTag: 'save_program',
-                    onPressed: () {
-                    _displayTextInputDialog(context);
-                  }, child: Icon(Icons.save), foregroundColor: Colors.white, backgroundColor: Colors.lightBlue.shade100, shape: CircleBorder(),),
-                ],
-              ),
+
             ]),
           ),),
         ),

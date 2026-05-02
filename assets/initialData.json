@@ -1,4 +1,12 @@
 [
+  {
+    "name": "Творог",
+    "temperature": 90,
+    "hours": 0,
+    "minutes": 40,
+    "temperature_offset": 5,
+    "shaker_enabled": true
+  },
 {
   "name": "Говядина: стейк medium rare",
   "temperature": 58,
