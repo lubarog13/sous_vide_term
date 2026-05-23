@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'buttomNavigation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'main.dart';
 import 'utils/texts.dart';
 
@@ -17,7 +16,8 @@ class Settings extends StatefulWidget {
 class _SettingsState extends State<Settings> {
   bool _isDarkMode = false;
   bool _isFahrenheit = false;
-
+  String _deviceName = "";
+  final TextEditingController _deviceNameController = TextEditingController();
   @override
   void initState() {
     super.initState();
@@ -26,6 +26,8 @@ class _SettingsState extends State<Settings> {
       setState(() {
         _isDarkMode = prefs.getBool('is_dark_mode') ?? false;
         _isFahrenheit = prefs.getBool('is_fahrenheit') ?? false;
+        _deviceName = prefs.getString('device_name') ?? dotenv.get('DEVICE_NAME');
+        _deviceNameController.text = _deviceName;
       });
     });
   }
@@ -46,6 +48,17 @@ class _SettingsState extends State<Settings> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_fahrenheit', _isFahrenheit);
     print('is_fahrenheit: $_isFahrenheit');
+  }
+
+  Future<void> _saveDeviceName() async {
+    if (_deviceNameController.text.isEmpty) {
+      return;
+    }
+    setState(() {
+      _deviceName = _deviceNameController.text;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('device_name', _deviceName);
   }
 
   @override
@@ -74,7 +87,31 @@ class _SettingsState extends State<Settings> {
             ],
           ),
           Divider(),
-          SizedBox(height: 10),
+          Form(
+            child: Row(children: [
+              Text('Имя устройства:'),
+              Expanded(
+                child:
+                    Padding(padding: EdgeInsets.only(right: 10, left: 10), child: 
+              TextFormField(
+                controller: _deviceNameController,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Имя устройства не может быть пустым';
+                  } 
+                  return null;
+                },
+              ),
+                    ),
+              ),
+              ElevatedButton(onPressed: _saveDeviceName, 
+              child: Text('Сохранить', style: TextStyle(color: Colors.white),), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), padding: EdgeInsets.symmetric(vertical: 20, horizontal: 20),),),
+            ],
+          )),
+          SizedBox(height: 20),
           GestureDetector(
             onTap: () {
               showDialog(
@@ -115,7 +152,6 @@ class _SettingsState extends State<Settings> {
           ),
         ],
       ),
-      bottomNavigationBar: ButtomNavigation(currentIndex: 2),
     );
   }
 }

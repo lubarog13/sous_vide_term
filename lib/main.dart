@@ -9,19 +9,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:step_progress_indicator/step_progress_indicator.dart';
 import 'database.dart';
 import 'programModel.dart';
-import 'programList.dart';
 import 'buttomNavigation.dart';
 import 'utils/utils.dart';
 import 'services/bluetoothService.dart';
 import 'utils/colors.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
   
 final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.light);
+final ValueNotifier<int> programListSelectionNotifier = ValueNotifier(0);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   final isDarkMode = prefs.getBool('is_dark_mode') ?? false;
   themeModeNotifier.value = isDarkMode ? ThemeMode.dark : ThemeMode.light;
+  await dotenv.load();
   runApp(const MyApp());
 }
 
@@ -50,7 +52,7 @@ class _MyAppState extends State<MyApp> {
             useMaterial3: true,
           ),
           themeMode: themeMode,
-          home: const MyHomePage(title: 'Умный градусник'),
+          home: const MainShell(),
         );
       },
     );
@@ -76,7 +78,6 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
   double _targetTemperature = 50.0;
   double _currentTemperature = 0;
   double _temperatureOffset = 0.5;
@@ -88,7 +89,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _seconds = 0;
   int _initialHours = 0;
   int _initialMinutes = 30;
-  DateTime _endTime = DateTime.now().add(
+  DateTime _endTime = DateTime.now().copyWith(second: 0).add(
     Duration(
       hours: 0,
       minutes: 30,
@@ -100,12 +101,11 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _timerRunning = false;
   SharedPreferences? _prefs;
   TextEditingController _textFieldController = TextEditingController();
-  bool _isFahrenheit = false;
-  String _deviceName = "";
-  String _deviceAddress = "";
   BluetoothDevice? _connectedDevice;
   bool _needSync = false;
   bool _canSync = false;
+  bool _isFahrenheit = false;
+  String _deviceName = "";
 
 
 final CustomBluetoothService _bluetoothService = CustomBluetoothService();
@@ -114,21 +114,54 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   bool _isConnected = false;
   bool _scanSuccess = false;
   String _statusMessage = "Выберите устройство";
-  String _receivedMessage = "";
   @override
  void initState()  {
     super.initState();
+    _isConnected = _bluetoothService.isConnected;
+    programListSelectionNotifier.addListener(_onProgramListSelection);
     _setupBluetoothListeners();
     _initPrefs();
+    createTimerPlaceholder();
 
   }
 
   @override
   void dispose() {
+    programListSelectionNotifier.removeListener(_onProgramListSelection);
     saveState();
-    DBProvider.db.close();
-    _bluetoothService.dispose();
     super.dispose();
+  }
+
+  Future<void> _onProgramListSelection() async {
+    await applyProgramFromList();
+  }
+
+  Future<void> applyProgramFromList() async {
+    _prefs ??= await SharedPreferences.getInstance();
+    _setFromList = _prefs?.getBool('set_from_list') ?? false;
+    if (!_setFromList) return;
+    _prefs?.remove('set_from_list');
+
+    final selectedProgram = _prefs?.getInt('selected_program');
+    if (selectedProgram != null && selectedProgram != 0) {
+      _program = await DBProvider.db.getProgram(selectedProgram);
+    }
+    _hours = _prefs?.getInt('current_hours') ?? _program?.hours ?? 20;
+    _minutes = _prefs?.getInt('current_minutes') ?? _program?.minutes ?? 30;
+    _seconds = 0;
+    _initialHours = _hours;
+    _initialMinutes = _minutes;
+    _endTime = DateTime.now().copyWith(second: 0).add(
+      Duration(hours: _hours, minutes: _minutes),
+    );
+    _targetTemperature = _prefs?.getDouble('current_temperature') ?? _program?.temperature ?? 50.0;
+    _temperatureOffset = _prefs?.getDouble('current_temperature_offset') ?? _program?.temperatureOffset ?? 0.5;
+    _shakerEnabled = _prefs?.getBool('current_shaker_enabled') ?? _program?.shakerEnabled ?? false;
+    if (!mounted) return;
+    setState(() {});
+    if (_isConnected) {
+      _startTimer();
+    }
   }
 
   Future<void> _initPrefs() async {
@@ -139,6 +172,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       _prefs?.remove('set_from_list');
     }
     _isFahrenheit = _prefs?.getBool('is_fahrenheit') ?? false;
+    _deviceName = _prefs?.getString('device_name') ?? dotenv.get('DEVICE_NAME');
     if (selectedProgram != null && selectedProgram != 0) {
       Program program = await DBProvider.db.getProgram(selectedProgram);
       _program = program;
@@ -148,7 +182,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       _hours = _initialHours;
       _minutes = _initialMinutes;
       _seconds = 0;
-      _endTime = DateTime.now().add(
+      _endTime = DateTime.now().copyWith(second: 0).add(
         Duration(
           hours: _hours,
           minutes: _minutes,
@@ -163,11 +197,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           _seconds = _prefs?.getInt('current_seconds') ?? 0;
           _initialHours = _hours;
           _initialMinutes = _minutes;
-          _endTime = DateTime.now().add(
+          _endTime = DateTime.now().copyWith(second: 0).add(
             Duration(
               hours: _hours,
               minutes: _minutes,
-              seconds: _seconds,
             ),
           );
           _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
@@ -184,7 +217,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           _initialMinutes = _program?.minutes ?? 30;
           _hours = _initialHours;
           _minutes = _initialMinutes;
-          _endTime = DateTime.now().add(
+          _endTime = DateTime.now().copyWith(second: 0).add(
             Duration(
               hours: _hours,
               minutes: _minutes,
@@ -199,11 +232,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                   _seconds = _prefs?.getInt('current_seconds') ?? 0;
                   _initialHours = _hours;
                   _initialMinutes = _minutes;
-                  _endTime = DateTime.now().add(
+                  _endTime = DateTime.now().copyWith(second: 0).add(
                     Duration(
                       hours: _hours,
                       minutes: _minutes,
-                      seconds: _seconds,
                     ),
                   );
                   _targetTemperature = _prefs?.getDouble('current_temperature') ?? 50.0;
@@ -223,8 +255,6 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       }
     }
     if (_connectedDevice != null) {
-      _deviceName = _connectedDevice!.name ?? "";
-      _deviceAddress = _connectedDevice!.address;
       _connectToDevice(_connectedDevice!);
     }
   }
@@ -297,7 +327,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     try {
       print("Scanning devices");
       final subscription = _bluetoothService
-          .scanDevices(scanDurationSeconds)
+          .scanDevices(scanDurationSeconds, _deviceName)
           .listen((devices) {
         setState(() {
           _devices = devices;
@@ -337,14 +367,15 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     bool success = await _bluetoothService.connectToDevice(device);
     
     if (success) {
+      setState(() {
+        _statusMessage = "Подключено к ${device.name ?? device.address}";
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Подключено к ${device.name ?? device.address}"),
           backgroundColor: Colors.green,
         ),
       );
-      _deviceName = device.name ?? "";
-      _deviceAddress = device.address;
       await _prefs?.setString('device', jsonEncode(device.toMap()));
       _connectedDevice = device;
       if (_setFromList) {
@@ -353,14 +384,13 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Не удалось подключиться к $_deviceName"),
+          content: Text("Не удалось подключиться к ${device.name ?? device.address}"),
           backgroundColor: Colors.red,
         ),
       );
       _connectedDevice = null;
-      _deviceName = "";
-      _deviceAddress = "";
-      // await _prefs?.remove('device');
+      _stopTimer();
+      await _prefs?.remove('device');
     }
   }
   
@@ -408,13 +438,16 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           print(_timerRunning);
           print('Timer running: ${message.substring(3, 4)} $_timerRunning ${message.substring(3, 4) == '1' ? 'true' : 'false'}');
           _validMessage = true;
-          if (_timerRunning && !_canSync) {
+          if (_timerRunning && _firstInit) {
             _canSetData = true;
           }
+        } else if (message.startsWith('Tr:') && !_setFromList && (message.substring(3, 4) == '1' && !_timerRunning))  {
+          _needSync = true;
         }
       else if (message.startsWith('Ct:')) {
         _currentTemperature = double.parse(message.substring(3));
         _validMessage = true;
+        _needSync = false;
       } else if (message.startsWith('O:') && (_canSetData || _timerRunning || _canSync)) {
         _temperatureOffset = double.parse(message.substring(2));
         _validMessage = true;
@@ -425,8 +458,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       else if (message.startsWith('Tt:') && (_canSetData || _timerRunning || _canSync)) {
         _targetTemperature = double.parse(message.substring(3));
         _validMessage = true;
+        _needSync = false;
       } 
       else if (message.startsWith('Tt:') && double.parse(message.substring(3)) != _targetTemperature) {
+        print('Target temperature changed: ${message.substring(3)} ${double.parse(message.substring(3))} != ${_targetTemperature}');
         _needSync = true;
       }
       else if (message.startsWith('M:') && (_canSetData || _timerRunning || _canSync)) {
@@ -434,7 +469,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
         if (minutes > 0 && minutes!= _hours * 60 + _minutes) {
           _hours = minutes ~/ 60;
           _minutes = minutes % 60;
-          _endTime = DateTime.now().add(
+          _endTime = DateTime.now().copyWith(second: 0).add(
             Duration(
               hours: _hours,
               minutes: _minutes,
@@ -447,6 +482,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       } else if (message.startsWith('S:') && (_canSetData || _timerRunning || _canSync)) {
           _shakerEnabled = message.substring(2) == '1' ? true : false;
           _validMessage = true;
+          _needSync = false;
         }
       });
       if ((_canSetData && _canSync) && (_program?.temperature != _targetTemperature || _program?.temperatureOffset != _temperatureOffset || _program?.shakerEnabled != _shakerEnabled)) {
@@ -459,7 +495,6 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       if (_validMessage) {
         _firstInit = false;
         _setFromList = false;
-        _needSync = false;
         _canSync = false;
       }
   }
@@ -487,11 +522,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       _hours = _initialHours;
       _minutes = _initialMinutes;
       _seconds = 0;
-      _endTime = DateTime.now().add(
+      _endTime = DateTime.now().copyWith(second: 0).add(
         Duration(
           hours: _hours,
           minutes: _minutes,
-          seconds: _seconds,
         ),
       );
       _sendCommand('Tt:${_targetTemperature}\nO:${_temperatureOffset}\nS:${_shakerEnabled ? 1 : 0}\nM:${_hours * 60 + _minutes}');
@@ -503,7 +537,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
   void createTimer() {
     _timer = TimerCountdown(
       format: CountDownTimerFormat.hoursMinutes,
-      endTime: _endTime,
+      endTime: _endTime.copyWith(second: 0),
       enableDescriptions: false,
       timeTextStyle: TextStyle(fontSize: 50),
       colonsTextStyle: TextStyle(fontSize: 50),
@@ -516,13 +550,14 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
         setState(() {
           _hours = duration.inHours;
           _minutes = duration.inMinutes % 60;
-          _seconds = duration.inSeconds % 60;
+          print('Duration: ${duration.inHours} ${duration.inMinutes % 60}');
         });
       },
     );
   }
 
   void createTimerPlaceholder() {
+    print('createTimerPlaceholder: ${_hours} ${_minutes}');
     _timerPlaceholder = Text('${_hours.toString().padLeft(2, '0')} : ${_minutes.toString().padLeft(2, '0')}', style: TextStyle(fontSize: 50));
   }
 
@@ -625,11 +660,10 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           _initialHours = _hours;
           _initialMinutes = _minutes;
           _seconds = 0;
-          _endTime = DateTime.now().add(
+          _endTime = DateTime.now().copyWith(second: 0).add(
             Duration(
               hours: _hours,
               minutes: _minutes,
-              seconds: _seconds,
             ),
           );
           _timer = null;
@@ -666,18 +700,16 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           _hours = _initialHours;
           _minutes = _initialMinutes;
           _seconds = 0;
-          _endTime = DateTime.now().add(
+          _endTime = DateTime.now().copyWith(second: 0).add(
             Duration(
               hours: _hours,
               minutes: _minutes,
-              seconds: _seconds,
             ),
           );
           _targetTemperature = programs[value[0]].temperature;
           _temperatureOffset = programs[value[0]].temperatureOffset;
           _shakerEnabled = programs[value[0]].shakerEnabled;
-          _timerRunning = false;
-          _timer = null;
+          _stopTimer();
           createTimerPlaceholder();
         });
       },
@@ -751,7 +783,6 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
 
   @override
   Widget build(BuildContext context) {
-    createTimerPlaceholder();
     // This method is rerun every time setState is called, for instance as done
     // by the _incrementCounter method above.
     //
@@ -862,7 +893,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                       children: [
                         CircularStepProgressIndicator(
                           totalSteps: 100,
-                          currentStep:  (((_initialHours - _hours) * 60 * 60 + (_initialMinutes - _minutes) * 60 - _seconds) / (_initialHours * 60 * 60 + _initialMinutes * 60 ) * 100).toInt(),
+                          currentStep:  (((_initialHours - _hours) * 60 * 60 + (_initialMinutes - _minutes) * 60) / (_initialHours * 60 * 60 + _initialMinutes * 60 ) * 100).toInt(),
                           width: 180,
                           height: 180,
                           stepSize: 10,
@@ -880,11 +911,11 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                   ),
               ),
               SizedBox(height: 10),
-              if (_needSync) ...[
-              GestureDetector(onTap: () {
-                _canSync = true;
-              }, child: Text('Синхронизировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Theme.of(context).colorScheme.error))),
-              ],
+              _needSync ?
+                GestureDetector(onTap: () {
+                  _canSync = true;
+                }, child: Text('Синхронизировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Theme.of(context).colorScheme.error)))
+              : SizedBox.shrink(),
               SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -931,7 +962,6 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
           ),),
         ),
         
-      bottomNavigationBar: ButtomNavigation(currentIndex: 0),
     );
   }
 }

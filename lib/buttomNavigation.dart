@@ -2,29 +2,40 @@ import 'package:flutter/material.dart';
 import 'main.dart';
 import 'programList.dart';
 import 'settings.dart';
-class ButtomNavigation extends StatelessWidget {
-  ButtomNavigation({super.key, required this.currentIndex});
-  final int currentIndex;
+
+class MainShell extends StatefulWidget {
+  const MainShell({super.key});
+
+  @override
+  State<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends State<MainShell> {
+  int _currentIndex = 0;
+
   @override
   Widget build(BuildContext context) {
-    return BottomNavigationBar(
-      currentIndex: currentIndex,
-      onTap: (index) {
-        if (index == 0) {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => MyHomePage(title: 'Главная')));
-        } 
-        if (index == 1) {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => ProgramList(title: 'Программы')));
-        }
-        if (index == 2) {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => Settings(title: 'Настройки')));
-        }
-      },
-      items: [
+    return Scaffold(
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          const MyHomePage(title: 'Главная'),
+          ProgramList(
+            title: 'Программы',
+            onProgramSelected: () => setState(() => _currentIndex = 0),
+          ),
+          const Settings(title: 'Настройки'),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Главная'),
           BottomNavigationBarItem(icon: Icon(Icons.food_bank), label: 'Программы'),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Настройки'),
         ],
+      ),
     );
   }
 }

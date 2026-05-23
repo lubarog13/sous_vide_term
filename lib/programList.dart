@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sous_vide_term/main.dart';
+import 'main.dart';
 import 'programModel.dart';
 import 'database.dart';
-import 'buttomNavigation.dart';
 import 'utils/utils.dart';
 class ProgramList extends StatefulWidget {
-  const ProgramList({super.key, required this.title});
+  const ProgramList({super.key, required this.title, this.onProgramSelected});
 
   final String title;
+  final VoidCallback? onProgramSelected;
 
   @override
   State<ProgramList> createState() => _ProgramListState();
@@ -57,20 +57,20 @@ class ProgramList extends StatefulWidget {
                         itemBuilder: (context, index) {
                           return GestureDetector(onTap: () {
                             print(programs[index].toJson());
-                            SharedPreferences.getInstance().then((prefs) {
-                              prefs.setInt('selected_program', programs[index].id ?? 0);
-                              prefs.setInt('current_hours', programs[index].hours);
-                              prefs.setInt('current_minutes', programs[index].minutes);
-                              prefs.setDouble('current_temperature', programs[index].temperature);
-                              prefs.setDouble('current_temperature_offset', programs[index].temperatureOffset);
-                              prefs.setBool('current_shaker_enabled', programs[index].shakerEnabled);
-                              prefs.setBool('set_from_list', true);
+                            SharedPreferences.getInstance().then((prefs) async {
+                              await prefs.setInt('selected_program', programs[index].id ?? 0);
+                              await prefs.setInt('current_hours', programs[index].hours);
+                              await prefs.setInt('current_minutes', programs[index].minutes);
+                              await prefs.setDouble('current_temperature', programs[index].temperature);
+                              await prefs.setDouble('current_temperature_offset', programs[index].temperatureOffset);
+                              await prefs.setBool('current_shaker_enabled', programs[index].shakerEnabled);
+                              await prefs.setBool('set_from_list', true);
+                              programListSelectionNotifier.value++;
+                              widget.onProgramSelected?.call();
                             });
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => MyHomePage(title: 'Главная')));
                           }, child: Card(child: _SampleCard(program: programs[index], isFahrenheit: isFahrenheit)));
                         },
                       ) : Center(child: Text('Программы не найдены')),
-        bottomNavigationBar: ButtomNavigation(currentIndex: 1),
     );
   }
 }

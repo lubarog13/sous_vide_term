@@ -22,9 +22,10 @@ class CustomBluetoothService {
   Stream<bool> get connectionStatus => _connectionStatus.stream;
   Stream<String> get receivedData => _receivedData.stream;
   BluetoothDevice? get connectedDevice => _connectedDevice;
+  bool get isConnected => _connection?.isConnected ?? false;
   
   // Scan classic Bluetooth devices (paired and discoverable unpaired)
-  Stream<List<BluetoothDevice>> scanDevices(int durationSeconds) async* {
+  Stream<List<BluetoothDevice>> scanDevices(int durationSeconds, String? prefferedDeviceName) async* {
     final devicesByAddress = <String, BluetoothDevice>{};
 
     print("Loading bonded classic Bluetooth devices");
@@ -41,8 +42,19 @@ class CustomBluetoothService {
     );
 
     await for (final result in discovery) {
+      // Ensure preferred device is always first in the list, if provided and present
       devicesByAddress[result.device.address] = result.device;
-      yield devicesByAddress.values.toList();
+      List<BluetoothDevice> deviceList = devicesByAddress.values.toList();
+
+      if (prefferedDeviceName != null) {
+        deviceList.sort((a, b) {
+          if ((a.name == prefferedDeviceName) && (b.name != prefferedDeviceName)) return -1;
+          if ((b.name == prefferedDeviceName) && (a.name != prefferedDeviceName)) return 1;
+          return 0;
+        });
+      }
+
+      yield deviceList;
     }
   }
   
@@ -54,6 +66,9 @@ class CustomBluetoothService {
   // Connect to device
   Future<bool> connectToDevice(BluetoothDevice device) async {
     try {
+      if (_connectedDevice != null && _connectedDevice!.address == device.address && _connection!.isConnected) { 
+        return true;
+      }
       final bluetoothState = await FlutterBluetoothSerial.instance.state;
       if (bluetoothState != BluetoothState.STATE_ON) {
         print("Bluetooth is turned off");
@@ -128,10 +143,7 @@ class CustomBluetoothService {
     return state == BluetoothState.STATE_ON;
   }
   
-  // Cleanup
   void dispose() {
     disconnect();
-    _connectionStatus.close();
-    _receivedData.close();
   }
 }
