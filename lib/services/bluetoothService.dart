@@ -56,11 +56,13 @@ class CustomBluetoothService {
     try {
       final bluetoothState = await FlutterBluetoothSerial.instance.state;
       if (bluetoothState != BluetoothState.STATE_ON) {
+        print("Bluetooth is turned off");
         throw Exception("Bluetooth is turned off");
       }
 
       final isDiscovering = await FlutterBluetoothSerial.instance.isDiscovering;
       if (isDiscovering ?? false) {
+        print("Cancelling discovery");
         await FlutterBluetoothSerial.instance.cancelDiscovery();
       }
 
@@ -71,6 +73,7 @@ class CustomBluetoothService {
         final bondResult = await FlutterBluetoothSerial.instance
             .bondDeviceAtAddress(device.address);
         if (bondResult != true) {
+          print("Pairing failed for ${device.name ?? device.address}");
           throw Exception("Pairing failed for ${device.name ?? device.address}");
         }
       }
@@ -78,7 +81,6 @@ class CustomBluetoothService {
       _connection = await BluetoothConnection.toAddress(device.address);
       _inputSubscription?.cancel();
       _inputSubscription = _connection!.input?.listen((bytes) {
-        print("Bytes:"+bytes.toString());
         if (bytes.isNotEmpty) {
           final data = utf8.decode(bytes, allowMalformed: true).trim();
           if (data.isNotEmpty) {
@@ -104,8 +106,9 @@ class CustomBluetoothService {
       throw Exception("Not connected to any device");
     }
 
-    final cmdWithNewline = "$command\n";
-    _connection!.output.add(Uint8List.fromList(utf8.encode(cmdWithNewline)));
+    final payload = "${command.trimRight()}\n";
+    print("Sending command: $payload");
+    _connection!.output.add(Uint8List.fromList(utf8.encode(payload)));
     await _connection!.output.allSent;
   }
   
