@@ -5,9 +5,15 @@ import 'programModel.dart';
 import 'database.dart';
 import 'utils/utils.dart';
 class ProgramList extends StatefulWidget {
-  const ProgramList({super.key, required this.title, this.onProgramSelected});
+  const ProgramList({
+    super.key,
+    required this.title,
+    this.isActive = false,
+    this.onProgramSelected,
+  });
 
   final String title;
+  final bool isActive;
   final VoidCallback? onProgramSelected;
 
   @override
@@ -18,23 +24,37 @@ class ProgramList extends StatefulWidget {
 
   List<Program> programs = [];
   bool isFahrenheit = false;
-    @override
-    void initState() {
-      super.initState();
-      print('init');
-      getPrograms();
-      SharedPreferences.getInstance().then((prefs) {
-        setState(() {
-          isFahrenheit = prefs.getBool('is_fahrenheit') ?? false;
-        });
-      });
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isActive) {
+      _onPageVisible();
     }
+  }
 
-  void getPrograms() async {
-      DBProvider.db.getPrograms().then((value) {
-        setState(() {
-          programs = value;
-        });
+  @override
+  void didUpdateWidget(ProgramList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _onPageVisible();
+    }
+  }
+
+  void _onPageVisible() {
+    getPrograms();
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      setState(() {
+        isFahrenheit = prefs.getBool('is_fahrenheit') ?? false;
+      });
+    });
+  }
+
+  Future<void> getPrograms() async {
+    final value = await DBProvider.db.getPrograms();
+    if (!mounted) return;
+    setState(() {
+      programs = value;
     });
   }
 

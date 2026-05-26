@@ -19,9 +19,13 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          const MyHomePage(title: 'Главная'),
+          MyHomePage(
+            title: 'Главная',
+            isActive: _currentIndex == 0,
+          ),
           ProgramList(
             title: 'Программы',
+            isActive: _currentIndex == 1,
             onProgramSelected: () => setState(() => _currentIndex = 0),
           ),
           const Settings(title: 'Настройки'),

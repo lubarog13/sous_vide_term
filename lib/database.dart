@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -10,6 +11,7 @@ class DBProvider {
   DBProvider._();
   static final DBProvider db = DBProvider._();
   static Database? _database;
+  bool firstInit = true;
   Future<Database> get database async {
     if (_database != null) {
       return _database!;
@@ -34,13 +36,18 @@ class DBProvider {
           "temperature_offset REAL,"
           "shaker_enabled INTEGER"
           ")");
-      await insertInitialData();
+      if (firstInit) {
+        firstInit = false;
+        await insertInitialData();
+      }
     });
   }
 
   Future<void> insertInitialData() async {
     final db = await database;
-    List<Map<String, dynamic>> initialData = json.decode('assets/initialData.json');
+    final jsonString = await rootBundle.loadString('assets/initialData.json');
+    final List<Map<String, dynamic>> initialData =
+        List<Map<String, dynamic>>.from(json.decode(jsonString));
     for (var item in initialData) {
       Program program = Program.fromJson(item);
       await db.insert('Program', program.toJson());

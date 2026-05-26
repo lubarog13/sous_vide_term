@@ -23,7 +23,15 @@ class Program {
   Program({required this.id, required this.name, required this.hours, required this.minutes, required this.temperature, required this.temperatureOffset, required this.shakerEnabled});
 
   factory Program.fromJson(Map<String, dynamic> json) {
-    return Program(id: json['id'], name: json['name'], hours: json['hours'], minutes: json['minutes'], temperature: json['temperature'], temperatureOffset: json['temperature_offset'], shakerEnabled: json['shaker_enabled'] == 1 ? true : false);
+    return Program(
+      id: json['id'],
+      name: json['name'],
+      hours: json['hours'],
+      minutes: json['minutes'],
+      temperature: (json['temperature'] as num).toDouble(),
+      temperatureOffset: (json['temperature_offset'] as num?)?.toDouble() ?? 0,
+      shakerEnabled: json['shaker_enabled'] == 1 || json['shaker_enabled'] == true,
+    );
   }
 
   Map<String, dynamic> toJson() {
