@@ -106,7 +106,6 @@ void handleEncoder() {
         timeMinutes = TIMER_MINUTES_MIN;
       }
     }
-    Serial.println(timeMinutes);
   }
 
   // save last CLK state
@@ -133,7 +132,7 @@ void runTimer() {
     digitalWrite(LED_ALARM_PIN, LOW);
     if (!timerFinishedBeeped) {
       noTone(BUZZER);
-      tone(BUZZER, 1000, 500);
+      tone(BUZZER, 3000, 500);
       timerFinishedBeeped = true;
     }
   } else {
@@ -175,7 +174,7 @@ void handleTimerCommands(const String& data) {
       timerRunning = true;
       timerFinishedBeeped = false;
       noTone(BUZZER);
-      tone(BUZZER, 500, 500);
+      tone(BUZZER, 1000, 500);
     }
   } else if (data == "STOP") {
     timerRunning = false;
@@ -199,7 +198,7 @@ void checkTemperature() {
       digitalWrite(LED_ALARM_PIN, LOW);
       if (!prevState && timerRunning) {
         noTone(BUZZER);
-        tone(BUZZER, 500, 500);
+        tone(BUZZER, 800, 500);
         prevState = true;
       }
        digitalWrite(PIN_RELAY, LOW);
@@ -208,7 +207,7 @@ void checkTemperature() {
       digitalWrite(LED_ALARM_PIN, HIGH);
       if (prevState && timerRunning) {
         noTone(BUZZER);
-        tone(BUZZER, 1000);
+        tone(BUZZER, 2500, 500);
         prevState = false;
       }
       if (currentTemperature < targetTemperature - temperatureOffset) {
