@@ -959,7 +959,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
                   setState(() {
                     _canSync = true;
                   });
-                }, child: Text('Синхронизировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Theme.of(context).colorScheme.error)))
+                }, child: Row(spacing: 5, mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sync, color: Theme.of(context).colorScheme.error, size: Theme.of(context).textTheme.bodyMedium?.fontSize,), Text('Синхронизировать', style: TextStyle(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize, color: Theme.of(context).colorScheme.error))]))
               : SizedBox.shrink(),
               SizedBox(height: 10),
               Row(

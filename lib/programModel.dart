@@ -23,25 +23,54 @@ class Program {
   Program({required this.id, required this.name, required this.hours, required this.minutes, required this.temperature, required this.temperatureOffset, required this.shakerEnabled});
 
   factory Program.fromJson(Map<String, dynamic> json) {
+    // Supports both the "old" DB/JSON keys:
+    // - temperature / hours / minutes / temperature_offset
+    // and the "new" schema keys:
+    // - target_temp / duration_minutes / temp_offset
     return Program(
       id: json['id'],
       name: json['name'],
-      hours: json['hours'],
-      minutes: json['minutes'],
-      temperature: (json['temperature'] as num).toDouble(),
-      temperatureOffset: (json['temperature_offset'] as num?)?.toDouble() ?? 0,
+      hours: () {
+        final durationMinutesRaw = json['duration_minutes'] as num?;
+        if (durationMinutesRaw != null) {
+          final durationMinutes = durationMinutesRaw.toInt();
+          return durationMinutes ~/ 60;
+        }
+        return (json['hours'] as num?)?.toInt() ?? 0;
+      }(),
+      minutes: () {
+        final durationMinutesRaw = json['duration_minutes'] as num?;
+        if (durationMinutesRaw != null) {
+          final durationMinutes = durationMinutesRaw.toInt();
+          return durationMinutes % 60;
+        }
+        return (json['minutes'] as num?)?.toInt() ?? 0;
+      }(),
+      temperature: (() {
+        final targetTempRaw = json['target_temp'] as num?;
+        if (targetTempRaw != null) return targetTempRaw.toDouble();
+        final temperatureRaw = json['temperature'] as num?;
+        return (temperatureRaw ?? 0).toDouble();
+      })(),
+      temperatureOffset: (() {
+        final tempOffsetRaw = json['temp_offset'] as num?;
+        if (tempOffsetRaw != null) return tempOffsetRaw.toDouble();
+        final temperatureOffsetRaw = json['temperature_offset'] as num?;
+        return temperatureOffsetRaw?.toDouble() ?? 0;
+      })(),
       shakerEnabled: json['shaker_enabled'] == 1 || json['shaker_enabled'] == true,
     );
   }
 
   Map<String, dynamic> toJson() {
+    final durationMinutes = hours * 60 + minutes;
     return {
       'id': id,
       'name': name,
-      'hours': hours,
-      'minutes': minutes,
-      'temperature': temperature,
-      'temperature_offset': temperatureOffset,
+      // New DB schema keys.
+      'target_temp': temperature,
+      'temp_offset': temperatureOffset,
+      'duration_minutes': durationMinutes,
       'shaker_enabled': shakerEnabled ? 1 : 0,
     };
   }
