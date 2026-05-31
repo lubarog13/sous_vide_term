@@ -315,7 +315,7 @@ void loop() {
   }
   if (shakerEnabled && !shakerRunning && timerRunning) {
     shakerRunning = true;
-    analogWrite(MOT_PIN1, 128);
+    analogWrite(MOT_PIN1, 255);
     analogWrite(MOT_PIN2, 0);
   }
   if ((!shakerEnabled && shakerRunning ) || !timerRunning ) {
