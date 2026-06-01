@@ -63,14 +63,13 @@ class Program {
   }
 
   Map<String, dynamic> toJson() {
-    final durationMinutes = hours * 60 + minutes;
     return {
       'id': id,
       'name': name,
-      // New DB schema keys.
-      'target_temp': temperature,
-      'temp_offset': temperatureOffset,
-      'duration_minutes': durationMinutes,
+      'temperature': temperature,
+      'temperature_offset': temperatureOffset,
+      'hours': hours,
+      'minutes': minutes,
       'shaker_enabled': shakerEnabled ? 1 : 0,
     };
   }
