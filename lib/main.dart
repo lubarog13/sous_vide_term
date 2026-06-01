@@ -696,6 +696,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
       onConfirm: (Picker picker, List<int> value) {
         setState(() {
           _timerRunning = false;
+          _sendCommand('STOP');
           _hours = value[0];
           _minutes = value[1];
           _seconds = 0;
@@ -709,7 +710,7 @@ final CustomBluetoothService _bluetoothService = CustomBluetoothService();
             ),
           );
           _timer = null;
-          createTimer();
+          createTimerPlaceholder();
         });
       },
     ).showModal(context);
